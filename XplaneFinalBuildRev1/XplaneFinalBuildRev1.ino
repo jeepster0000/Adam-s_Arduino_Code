@@ -1,0 +1,1144 @@
+#include <Encoder.h>
+#include <elapsedMillis.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>  // LCD header File  $$$$ see note
+//#include <i2c_t3.h>
+//#include <hd44780.h>                        // main hd44780 header
+//#include <hd44780ioClass/hd44780_I2Cexp.h>  // i2c expander i/o class header
+
+//hd44780_I2Cexp lcd;  // declare lcd object: auto locate & auto config expander chip
+
+/*
+This code is used for the TEENSY flight sim controller to "talk" to x-plane.  
+The encoder is speed sensitive.  If you turn the
+encoder quickly, the bug changes quickly and you have fast control; if
+you turn the encoder slowly, the bug changes slowly and you have fine
+control.  Encoders must be on a digital input.  Potieometers can be on an
+analong input.
+ 
+This is an extension (and substantial rewrite) of the plain encoder-
+reading code from before.  Pots are added as well
+// hd44780 library see https://github.com/duinoWitchery/hd44780
+// thehd44780 library is available through the IDE library manager
+*/
+
+
+
+
+  /**************************************************************************
+ ***                            LCD   Address is 0x3F                      ***
+ ***************************************************************************/
+
+LiquidCrystal_I2C lcd(0x3F, 20, 4); 
+
+//int SDApin = 38;  // A3. Uses Wire1 Only necessary if you are are using ALTERNATE SDA and SCL pins on Teensy 3.x!
+//int SCLpin = 37;  // A2. Uses Wire1 Only necessary if you are are using ALTERNATE SDA and SCL pins on Teensy 3.x!
+
+bool annunciatorArray[4] = {false, false, false, false};
+
+
+
+
+
+/**************************************************************************
+ ***                            Encoder Inputs                           ***
+ ***************************************************************************/
+/*  **********************************************************
+********************Notes*********************************
+If Encoder does not spin the correct way, then reverse the encoder.
+Copy and paste fron Nav 2 OBS.  This does not have the testing criteria
+
+Do not delete the Encoder calls.  Just change to a port not being used or Note out.
+ */
+
+
+
+// These are al the encoders and timer intervals in this section.
+//Nav 1 OBS Encoder
+Encoder Nav1OBSEncoder(31, 32);  // nav1OBS on 11 12
+short Nav1OBSEncoderPrevious = 0;
+elapsedMillis Nav1OBSEncoderClickInterval = 0;
+
+// Nav 2 OBS Encoder
+Encoder Nav2OBSEncoder(25, 26);  // nav2OBS on 25 26
+short Nav2OBSEncoderPrevious = 0;
+elapsedMillis Nav2OBSEncoderClickInterval = 0;
+
+// Altimiter  Encoder
+Encoder AltEncoder(29, 30);  // Altimiter / baramoter on 8 7
+short AltEncoderPrevious = 0;
+elapsedMillis AltEncoderClickInterval = 0;
+
+// Heading Bug Encoder
+Encoder HeadingBugEncoder(27, 28);  // Heading Bug on 5 6
+short HeadingBugEncoderPrevious = 0;
+elapsedMillis HeadingBugEncoderClickInterval = 0;
+
+
+/* // Com 1 Hz Encoder TEST  24 an 12 is assigned to the Gyro sync mag encoder HIMagEncoder.
+Encoder Com1StanbyHzEncoder(24, 12); //Com 1 Hz on 12 24
+short Com1StanbyHzEncoderPrevious = 0;
+elapsedMillis Com1StanbyHzEncoderClickInterval = 0;
+*/
+
+//  sim/cockpit/radios/adf1_cardinal_dir
+// ADF Cardinal
+Encoder ADFCardEncoder(10, 11);  // ADF Heading Indicator on 10 11
+short ADFCardEncoderPrevious = 0;
+elapsedMillis ADFCardEncoderClickInterval = 0;
+
+/*
+ 
+ //sim/cockpit2/radios/actuators/nav1_standby_frequency_khz
+// Nav 1 Standby Hertz
+Encoder Nav1StanbyHzEncoder(9, 8); // Nav 1 Standby on 8 9  8&9 are currently assigned to elevator trim
+short Nav1StanbyHzEncoderPrevious = 0;
+elapsedMillis Nav1StanbyHzEncoderClickInterval = 0;
+
+*/
+
+//sim/cockpit/gyros/dg_drift_vac_deg
+// Heading Indicator Sync Encoder
+Encoder HIMagEncoder(24, 12);  // HI sync on 6 and 7 (not assigned)
+short HIMagEncoderPrevious = 0;
+elapsedMillis HIMagEncoderClickInterval = 0;
+
+//sim/flightmodel/controls/elv_trim
+//Elevator Trim Wheel Encoder
+Encoder ElevatorTrimWheelEncoder(9, 8);  // Elevator trim on 8&9
+short ElevatorTrimPrevious = 0;
+elapsedMillis ElevatorTrimClickInterval = 0;
+
+/**************************************************************************
+ ***             Analog /Potentiometer Inputs                           ***
+ ***************************************************************************/
+//Linear potentiomters usually from 0-670+
+//The red wire is the wiper.  The wiper needs to be on pins A9-A0 (or analaog inputs)
+//Flaps potentiometers set on pin 23 = A9 on Teensy
+//Elevator Trim Pin set on pin 22 = A8 on Teensy
+
+char FlapsPin = A9;
+char ElevatorTrimPin = A8;
+char CarbHeatPin = A7;
+char PrimerPin = A6;
+char AudioVolPin = A1;
+char AudioPanelButtonsPin = A21;
+
+//Varibles for Flap Pot
+float CurrentFlapValue;
+int RoundFlapValue;
+float TestFlapValue;
+int FlapDeBounceOld;
+int FlapDeBounceNew;
+
+//Varible for Elevator Trim Pot
+float CurrentElevatorTrimValue;
+int RoundElevatorTrimValue;
+int ElevatorTrimDeBounceOld;
+int ElevatorTrimDeBounceNew;
+
+//Varibles for Carb Heat Pot
+float CurrentCHValue;
+int RoundCHValue;
+float TestCHValue;
+int CHDeBounceOld;
+int CHDeBounceNew;
+
+//Varibles for Primer Pot
+float CurrentPrimerValue;
+int RoundPrimerValue;
+float TestPrimerValue;
+int PrimerDeBounceOld;
+int PrimerDeBounceNew;
+
+//Varibles for Volume Pot
+float CurrentVolumeValue;
+int RoundVolumeValue;
+float TestVolumeValue;
+int VolumeDeBounceOld;
+int VolumeDeBounceNew;
+
+//Varibles for AudioButton Pot
+float CurrentAudioButtonValue;
+int RoundAudioButtonValue;
+float TestAudioButtonValue;
+int AudioButtonDeBounceOld;
+int AudioButtonDeBounceNew;
+int lowvalueV = 875;
+int com1LV = 905;
+int com1MV = 920;
+int com2LV = 936;
+int com2MV = 955;
+int ADFLV = 972;
+int Nav1LV = 992;
+int Nav2LV = 1010;
+int DMELV = 1050;
+int SensV = 0;
+int MKRMuteV = 0;
+int com3LV = 0;
+int com3MV = 0;
+int splitcomV = 0;
+
+bool com1listen = 1;
+bool com1mic = 1;
+bool com2listen = 0;
+bool com2mic = 0;
+//bool com3listen =0;
+//bool com3mic = 0;
+bool Nav1Listen = 0;
+bool Nav2Listen = 0;
+bool DMEListen = 0;
+bool ADFListen = 0;
+bool senshi = 1;
+bool senslow = 0;
+bool outer = 0;
+bool middle = 0;
+bool inner = 0;
+bool mkrmute = 0;
+bool splitcom = 0;
+
+/**************************************************************************
+ ***               LED Outputs                                             ***
+ ***************************************************************************/
+#define Com1LPin 42
+#define Com1MPin 40
+#define Com2LPin 45
+#define Com2MPin 44
+//#define Com3Lpin
+//#define Com3Mpin
+#define Nav1LPin 54
+#define Nav2LPin 55
+#define DMEPin 56
+#define ADFPin 57
+#define OuterLedPin 46
+#define MiddleLedPin 47
+#define InnerLedPin 48
+#define MkrMutepin 53
+#define SensHiPin 52
+#define SensLoPin 51
+#define SplitComPin 13
+
+
+
+//Testing Values
+//short TestValuePrev = 0;
+//float TestDataRef=1000;
+
+/**************************************************************************
+ ***                     Flight Sim Varibles                            ***
+ ***************************************************************************/
+
+// Input/Output with simulator
+FlightSimFloat Nav1OBSDataref;
+FlightSimFloat Nav2OBSDataref;
+FlightSimFloat AltDataref;
+FlightSimFloat HeadingBugDataref;
+//FlightSimFloat Com1StanbyHzDataRef;
+FlightSimFloat ADFCardDataref;
+//FlightSimFloat Nav1StanbyHzDataRef;
+FlightSimFloat FlapsDataRef;
+FlightSimFloat HIMagDataref;
+FlightSimFloat ElevatorTrimDataref;
+FlightSimInteger FuelAnnunciatorDataref;
+FlightSimInteger VoltsAnnunciatorDataref;
+FlightSimInteger VacAnnunciatorDataref;
+FlightSimInteger OilAnnunciatorDataref;
+//NEW UPDATED AUDIO PANELS VARIBLES
+FlightSimInteger Com1ListenDataRef;
+FlightSimInteger TransmitComDataRef;
+FlightSimInteger Com2ListenDataRef;
+FlightSimInteger Nav1ListenDataRef;
+FlightSimInteger Nav2ListenDataRef;
+FlightSimInteger MkrSensDataRef;
+FlightSimInteger ADFListenDataRef;
+FlightSimInteger DMEListenDataRef;
+FlightSimInteger OuterMarkerLitDataRef;
+FlightSimInteger MiddleMarkerLitDataRef;
+FlightSimInteger InnerMarkerLitDataRef;
+
+
+//Left Fuel Quantity    sim/flightmodel/weight/m_fuel 1 0 20  Left Weight
+//right Fuel Quantity   sim/flightmodel/weight/m_fuel 2 0 20 Right Weight
+//Low Fuel BOOL         sim/cockpit/warnings/annunciators/fuel_quantity  Low Fuel Quantity
+//Fuel Level Left       sim/cockpit2/fuel/fuel_level_indicated_left
+// Fuel Level right     sim/cockpit2/fuel/fuel_level_indicated_right
+// Volts BOOL           sim/cockpit/warnings/annunciators/low_voltage
+// Vacuum Low BOOL      sim/cockpit/warnings/annunciators/low_vacuum
+// Oil Pressure BOOL    sim/cockpit2/annunciators/oil_pressure
+
+
+
+/*  LCD addressing and notes
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+$$$$$$$  LCD Note:  LiquidCrystal_I2C.cpp was mofified.  The word Wire was replaced with Wire1.  This allowed pins 37 and 38 to be called for SDA1 and SLC1.  
+Backup LiquidCrystal_I2C.cpp is in the library directory.
+
+LCD_I2C.ino
+  c.d.odom on 6.13.20
+  boards:
+  16x2: https://www.amazon.com/dp/B00VC2NEU8
+  20x4: https://www.amazon.com/dp/B01GPUMP9C?th=1
+
+  There are two ways to install the Liquid Crystal library:
+    1. Tools >> Manage Libraries, then search for "LiquidCrystal I2C" by Frank de Brabander, then click Install.
+    2. My students can download the LiquidCrystal_I2C-master.zip file from my Canvas tile:
+          Canvas >> Files >> Modules and Libraries >> LiquidCrystal_I2C-master.zip.
+          Download it to your Modules folder as a ZIP (Mac users may need to re-compress it).
+          Then from the Arduino IDE, Sketch >> Include Libraries >> Add Zip Libraries
+
+  Make sure to adjust the contrast using a screwdriver on the back of the daughter board
+
+  Help setting up the LCD: https://www.makerguides.com/character-i2c-lcd-arduino-tutorial/
+
+  You may need to check the address of the LCD using I2C_scanner.ino (if  the standard
+  0x27 or 0x3F addresses don't work).
+
+  See https://www.pjrc.com/teensy/td_libs_Wire.html,
+  and https://www.pjrc.com/teensy/pinout.html
+
+  I2C LED connections for Teensy 3.x and 4.x boards:
+                LCD Pins    Arduino Pins
+                ------------------------
+                    GND    |     GND
+                    VCC    |     5V
+                    SDA    |     A4   (Teensy 3.x users may substitute with pin A3)
+                    SCL    |     A5   (Teensy 3.x users may substitute with pin A2)
+
+  For MULTIPLE I2C devices, there are a couple of options:
+      - for Teensy 3.x with TWO I2C devices, simply use the Alternate SDA and 
+        SCL pins (17 and 16, respectively).  Use the code below, uncommenting the 
+        ALTERNATE pins below.
+      - for Teensy 4.x and Teensy 3.x with more than 2 I2C devices, use my I2C Bus 
+        PCB (see "I2C mother daughter connect.pcb").  This uses two 4.7k pullup resistors, one each between
+        Vcc and SDA, and Vcc and SCL, as explained here:
+           * https://learn.adafruit.com/working-with-i2c-devices/pull-up-resistors
+           * https://learn.adafruit.com/assets/109426
+ 
+  
+  20x4 LCD address is 0x27 or 0x3F by default.  Solder the jumpers A0, A1, A2 to create new
+  addresses like so:
+
+  A0 A1 A2 ID
+  0  0  0  0X27 All open (This is how mine came)    -- verified with Scanner.ino
+  1  0  0  0X26 A0 only closed      -- verified with Scanner.ino
+  0  1  0  0X25 A1 only closed      -- verified with Scanner.ino
+  1  1  0  0x24 A0 and A1 closed    -- verified with Scanner.ino
+  0  0  1  0X23 A2 only closed      -- verified with Scanner.ino
+  1  0  1  0X22 A0 and A2 closed    -- verified with Scanner.ino
+  0  1  1  0X21 A1 and A2 closed    -- verified with Scanner.ino
+  1  1  1  0X20 All three jumpers jumped.    -- verified with Scanner.ino
+
+
+*/
+
+
+
+// 16x2.  Address = 0x27.   Name = lcd.
+// This is for a 16 chars x 2 line display
+// Usual LCD address 0x27. 0x3F is another common address (e.g. LAFVIN). 
+//LiquidCrystal_I2C lcd(0x27, 16, 2); 
+
+// 20x4.  Address = 0x27.   Name = lcd2.
+// This is for a 20 chars x 4 line display
+// Usual LCD address 0x27. 0x3F is another common address (e.g. LAFVIN). 
+// If A2 jumper is soldered, e.g., address is 0x23.
+
+//$$$$$  4.7K resistor between Vcc and SCL1 & between Vcc and SDA1
+
+
+
+void setup() {
+
+
+  //Data Refs
+  //Encoder Data Refs
+  Nav1OBSDataref = XPlaneRef("sim/cockpit2/radios/actuators/nav1_obs_deg_mag_pilot");
+  Nav2OBSDataref = XPlaneRef("sim/cockpit2/radios/actuators/nav2_obs_deg_mag_pilot");
+  AltDataref = XPlaneRef("sim/cockpit/misc/barometer_setting");
+  HeadingBugDataref = XPlaneRef("sim/cockpit2/autopilot/heading_dial_deg_mag_pilot");
+  //Com1StanbyHzDataRef = XPlaneRef("sim/cockpit2/radios/actuators/com1_standby_frequency_khz");
+  ADFCardDataref = XPlaneRef("sim/cockpit/radios/adf1_cardinal_dir");
+  //Nav1StanbyHzDataRef = XPlaneRef("sim/cockpit2/radios/actuators/nav1_standby_frequency_khz");
+  //Pots / Analog data refs
+  FlapsDataRef = XPlaneRef("sim/flightmodel/controls/flaprqst");
+  HIMagDataref = XPlaneRef("sim/cockpit/gyros/dg_drift_vac_deg");
+  ElevatorTrimDataref = XPlaneRef("sim/flightmodel/controls/elv_trim");
+  //AudioPanel data refs
+  Com1ListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_selection_com1");
+  Com2ListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_selection_com2");
+  //To transmit over com1 set this dataref to 6, to transmit to com2 set to 7
+  TransmitComDataRef = XPlaneRef("sim/cockpit/switches/audio_panel_out");
+  Nav1ListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_selection_nav1");
+  Nav2ListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_selection_nav2");
+  MkrSensDataRef = XPlaneRef("sim/cockpit2/radios/actuators/marker_sens");
+  ADFListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_selection_adf1");
+  DMEListenDataRef = XPlaneRef("sim/cockpit2/radios/actuators/audio_dme_enabled");
+  OuterMarkerLitDataRef = XPlaneRef("sim/cockpit2/radios/indicators/outer_marker_lit");
+  MiddleMarkerLitDataRef = XPlaneRef("sim/cockpit2/radios/indicators/middle_marker_lit");
+  InnerMarkerLitDataRef = XPlaneRef("sim/cockpit2/radios/indicators/inner_marker_lit");
+  //Annunciator data refs
+  FuelAnnunciatorDataref = XPlaneRef("sim/cockpit/warnings/annunciators/fuel_quantity");
+  VoltsAnnunciatorDataref = XPlaneRef("sim/cockpit/warnings/annunciators/low_voltage");
+  VacAnnunciatorDataref = XPlaneRef("sim/cockpit/warnings/annunciators/low_vacuum");
+  OilAnnunciatorDataref = XPlaneRef("sim/cockpit/warnings/annunciators/oil_pressure");
+
+  //Annunciator Setup
+
+/*
+  pinMode(Com1LPin, OUTPUT);
+  pinMode(Com1MPin, OUTPUT);
+  pinMode(Com2LPin, OUTPUT);
+  pinMode(Com2MPin, OUTPUT);
+  pinMode(Nav1LPin, OUTPUT);
+  pinMode(Nav2LPin, OUTPUT);
+  pinMode(ADFPin, OUTPUT);
+  pinMode(DMEPin, OUTPUT);
+  pinMode(OuterLedPin, OUTPUT);
+  pinMode(MiddleLedPin, OUTPUT);
+  pinMode(InnerLedPin, OUTPUT);
+  pinMode(MkrMutepin, OUTPUT);
+  pinMode(SensHiPin, OUTPUT);
+  pinMode(SensLoPin, OUTPUT);
+  pinMode(SplitComPin, OUTPUT);
+*/
+
+
+
+  //Linear Pots need the current position noted when the program boots up
+  //RoundFlapValue = (analogRead(FlapsPin) * 10)/100;
+  //CurrentFlapValue = RoundFlapValue/100.;
+  //FlapsDataRef = CurrentFlapValue;
+  FlapDeBounceOld = FlapDeBounceNew + 1;
+  TestFlapValue = FlapsDataRef;
+  ElevatorTrimDeBounceOld = ElevatorTrimDeBounceNew + 1;
+
+
+
+//LCD Setup "hopefully"
+  //Use serial port for testing only
+
+
+Serial.begin(9600);
+  delay(250);
+ lcd.init();                      // initialize the lcd
+  // Print a message to the LCD.
+  lcd.backlight();
+  lcd.setCursor(2, 0);    // col, row
+  lcd.print("Start Up Test");
+  lcd.setCursor(3, 1);
+  lcd.print("5");
+  delay(1000);
+  lcd.setCursor(3, 1);
+  lcd.print("4");
+ delay(1000);
+ lcd.setCursor(3, 1);
+  lcd.print("3");
+  delay(1000);
+  lcd.setCursor(3, 1);
+  lcd.print("2");
+  delay(1000);
+  lcd.setCursor(3, 1);
+  lcd.print("1");
+  delay(1000);
+  lcd.setCursor(4,6);
+  lcd.print("Passed!!");
+  delay(1000);
+  lcd.clear();
+  lcd.off();
+  lcd.noBacklight();
+  FlightSim.update();
+
+  //Annunciator Setup
+
+
+}
+
+
+void loop() {
+
+  
+
+
+  //**********************************
+  //***     Audio Code    ***
+  //**********************************
+
+  if (Com1ListenDataRef == 1) {
+    digitalWrite(Com1LPin, HIGH);
+  } else if (Com1ListenDataRef == 0) {
+    digitalWrite(Com1LPin, LOW);
+  }
+  if (Com2ListenDataRef == 1) {
+    digitalWrite(Com2LPin, HIGH);
+  } else if (Com2ListenDataRef == 0) {
+    digitalWrite(Com2LPin, LOW);
+  }
+  if (Nav1ListenDataRef == 1) {
+    digitalWrite(Nav1LPin, HIGH);
+  } else if (Nav1ListenDataRef == 0) {
+    digitalWrite(Nav1LPin, LOW);
+  }
+  if (Nav2ListenDataRef == 1) {
+    digitalWrite(Nav2LPin, HIGH);
+  } else if (Nav2ListenDataRef == 0) {
+    digitalWrite(Nav2LPin, LOW);
+  }
+  if (ADFListenDataRef == 1) {
+    digitalWrite(ADFPin, HIGH);
+  } else if (ADFListenDataRef == 0) {
+    digitalWrite(ADFPin, LOW);
+  }
+  if (DMEListenDataRef == 1) {
+    digitalWrite(DMEPin, HIGH);
+  } else if (DMEListenDataRef == 0) {
+    digitalWrite(DMEPin, LOW);
+  }
+
+
+  if (MkrSensDataRef == 0) {
+    digitalWrite(SensHiPin, HIGH);
+    digitalWrite(SensLoPin, LOW);
+  } else if (MkrSensDataRef == 1) {
+    digitalWrite(SensHiPin, LOW);
+    digitalWrite(SensLoPin, HIGH);
+  }
+
+  if (TransmitComDataRef == 6) {
+    digitalWrite(Com1MPin, HIGH);
+    digitalWrite(Com2MPin, LOW);
+  } else if (TransmitComDataRef == 7) {
+    digitalWrite(Com2MPin, HIGH);
+    digitalWrite(Com1MPin, LOW);
+  }
+
+  if (OuterMarkerLitDataRef == 1) {
+    digitalWrite(OuterLedPin, HIGH);
+  } else if (OuterMarkerLitDataRef == 0) {
+    digitalWrite(OuterLedPin, LOW);
+  }
+  if (MiddleMarkerLitDataRef == 1) {
+    digitalWrite(MiddleLedPin, HIGH);
+  } else if (MiddleMarkerLitDataRef == 0) {
+    digitalWrite(MiddleLedPin, LOW);
+  }
+  if (InnerMarkerLitDataRef == 1) {
+    digitalWrite(InnerLedPin, HIGH);
+  } else if (InnerMarkerLitDataRef == 0) {
+    digitalWrite(InnerLedPin, LOW);
+  }
+
+
+  //**********************************
+  //***      Potentiometer Code    ***
+  //**********************************
+
+  //FLAPS
+  //The postiion of the Pot is important to the flap value
+  //This uses a 10K linear Pot.
+
+  if (analogRead(FlapsPin > 0.01)) {
+    RoundFlapValue = (analogRead(FlapsPin) * 500) / 510;
+    FlapDeBounceNew = round(analogRead(FlapsPin) * 10 / 100);
+    CurrentFlapValue = RoundFlapValue / 1000.;
+
+    if (FlapDeBounceNew != FlapDeBounceOld) {
+      FlapsDataRef = CurrentFlapValue;
+      FlapDeBounceOld = FlapDeBounceNew;
+    }
+  } else {
+    FlapsDataRef = 0.0000;
+  }
+
+  //Trim wheel, testing mode.
+  //The trim wheel uses a 500K potentiometer.
+  //Elevator Trim wheel values are between -1 & 1
+  //serial.println(A8);
+
+  //analogRead (ElevatorTrimPin);
+  //float CurrentElevatorTrimValue;
+  //int RoundElevatorTrimValue;
+  //int ElevatorTrimDeBounceOld;
+  //int ElevatorTrimDeBounceNew;
+
+  RoundElevatorTrimValue = (analogRead(ElevatorTrimPin) * 500) / 512;
+  ElevatorTrimDeBounceNew = round(analogRead(ElevatorTrimPin) * 10 / 100);
+  CurrentElevatorTrimValue = (RoundElevatorTrimValue / 1000. - .5) * 2;
+  if (ElevatorTrimDeBounceNew != ElevatorTrimDeBounceOld) {
+    ElevatorTrimDataref = CurrentElevatorTrimValue;
+    ElevatorTrimDeBounceOld = ElevatorTrimDeBounceNew;
+    //Serial.println(CurrentElevatorTrimValue);
+  }
+
+
+
+
+
+  //**********************************
+  //***      Encoder Code          ***
+  //**********************************
+
+  //Nav 1 OBS
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short Nav1OBSClicks = (Nav1OBSEncoder.read() - Nav1OBSEncoderPrevious) / 4;
+  //short TestClicks = (Nav1OBSEncoder.read()-TestValuePrev)/4;//For Testing only
+
+  // when encoder 'clicks' into a new detent:
+  if (Nav1OBSClicks != 0) {
+
+    //if (TestClicks !=0){//For Testing only
+
+
+    // change in degrees from current stored value (can be <0 )
+    float Nav1OBSChange = 0;
+    //float TestChange=0;//For Testing only
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (Nav1OBSEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 0.5 degrees per click.
+      Nav1OBSChange = Nav1OBSClicks * 0.5;
+
+
+      //TestChange=TestClicks *.5;//For Testing only
+      //Serial.print("The encoder moved slow and incremented  ");//For Testing only
+      //Serial.println(TestChange);//For Testing only
+
+
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (Nav1OBSEncoderClickInterval <= 30 && Nav1OBSEncoderClickInterval > 1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      Nav1OBSChange = Nav1OBSClicks * 5.0;
+
+      //TestChange=TestClicks *5.0;//For Testing only
+      //Serial.print("The encoder moved fast and incremented  ");//For Testing only
+      //Serial.println(TestChange);//For Testing only
+    }
+
+    // new value = current value plus changes
+    float Nav1OBSNewValue = Nav1OBSDataref + Nav1OBSChange;
+    //float TestNewValue =TestDataRef+ TestChange;//For Testing only
+
+    // make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (Nav1OBSNewValue < 0.0) Nav1OBSNewValue += 360.0;
+    while (Nav1OBSNewValue >= 360.0) Nav1OBSNewValue -= 360.0;
+
+    // write validated new heading back to dataref
+    Nav1OBSDataref = Nav1OBSNewValue;
+    //TestDataRef = TestNewValue;//For Testing only
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    Nav1OBSEncoderPrevious = 0;
+    Nav1OBSEncoder.write(0);
+    Nav1OBSEncoderClickInterval = 0;
+
+    //Serial.print("The New Value is  ");//For Testing only
+    //Serial.println(TestDataRef);//For Testing only
+  }
+
+  //***
+  //Nav 2 OBS
+  //***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short Nav2OBSClicks = (Nav2OBSEncoder.read() - Nav2OBSEncoderPrevious) / 4;
+
+
+  // when encoder 'clicks' into a new detent:
+  if (Nav2OBSClicks != 0) {
+
+    // change in degrees from current stored value (can be <0 )
+    float Nav2OBSChange = 0;
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (Nav2OBSEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 0.5 degrees per click.
+      Nav2OBSChange = Nav2OBSClicks * 0.5;
+
+
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (Nav2OBSEncoderClickInterval <= 30 && Nav2OBSEncoderClickInterval > 1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      Nav2OBSChange = Nav2OBSClicks * 5.0;
+    }
+
+    // new value = current value plus changes
+    float Nav2OBSNewValue = Nav2OBSDataref + Nav2OBSChange;
+
+    // make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (Nav2OBSNewValue < 0.0) Nav2OBSNewValue += 360.0;
+    while (Nav2OBSNewValue >= 360.0) Nav2OBSNewValue -= 360.0;
+
+    // write validated new heading back to dataref
+    Nav2OBSDataref = Nav2OBSNewValue;
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    Nav2OBSEncoderPrevious = 0;
+    Nav2OBSEncoder.write(0);
+    Nav2OBSEncoderClickInterval = 0;
+  }
+
+  //***
+  //Altimiter Dial
+  //***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short AltClicks = (AltEncoder.read() - AltEncoderPrevious) / 4;
+
+
+  // when encoder 'clicks' into a new detent:
+  if (AltClicks != 0) {
+
+    // change in degrees from current stored value (can be <0 )
+    float AltChange = 0;
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    //if (AltEncoderClickInterval > 30) {
+    // FINE/slow mode. Change by 0.5 degrees per click.
+    AltChange = AltClicks * 0.01;
+
+
+    //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+    //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    /* } else if (AltEncoderClickInterval <=30 && AltEncoderClickInterval >1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      AltChange = AltClicks * 0.1;
+      
+    }*/
+
+    // new value = current value plus changes
+    float AltNewValue = AltDataref + AltChange;
+
+    // make sure new value is valid (i.e. the baromter / altimiter cannot be <29.0 or >30.8)
+    while (AltNewValue < 29.00) AltNewValue = 29.00;
+    while (AltNewValue > 30.80) AltNewValue = 30.80;
+
+    // write validated new heading back to dataref
+    AltDataref = AltNewValue;
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    AltEncoderPrevious = 0;
+    AltEncoder.write(0);
+    AltEncoderClickInterval = 0;
+  }
+
+  //***
+  //Heading Bug
+  //***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short HeadingBugClicks = (HeadingBugEncoder.read() - HeadingBugEncoderPrevious) / 4;
+
+
+  // when encoder 'clicks' into a new detent:
+  if (HeadingBugClicks != 0) {
+
+    // change in degrees from current stored value (can be <0 )
+    float HeadingBugChange = 0;
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (HeadingBugEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 0.5 degrees per click.
+      HeadingBugChange = HeadingBugClicks * 0.5;
+
+
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (HeadingBugEncoderClickInterval <= 30 && HeadingBugEncoderClickInterval > 1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      HeadingBugChange = HeadingBugClicks * 5.0;
+    }
+
+    // new value = current value plus changes
+    float HeadingBugNewValue = HeadingBugDataref + HeadingBugChange;
+
+
+
+    // make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (HeadingBugNewValue < 0.0) HeadingBugNewValue += 360.0;
+    while (HeadingBugNewValue >= 360.0) HeadingBugNewValue -= 360.0;
+
+    // write validated new heading back to dataref
+    HeadingBugDataref = HeadingBugNewValue;
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    HeadingBugEncoderPrevious = 0;
+    HeadingBugEncoder.write(0);
+    HeadingBugEncoderClickInterval = 0;
+  }
+  //***
+  //ADF Heading Indicator / Cardinal Indicator
+  //***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short ADFCardClicks = (ADFCardEncoder.read() - ADFCardEncoderPrevious) / 4;
+
+
+  // when encoder 'clicks' into a new detent:
+  if (ADFCardClicks != 0) {
+
+    // change in degrees from current stored value (can be <0 )
+    float ADFCardChange = 0;
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (ADFCardEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 0.5 degrees per click.
+      ADFCardChange = ADFCardClicks * 0.5;
+
+
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (ADFCardEncoderClickInterval <= 30 && ADFCardEncoderClickInterval > 1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      ADFCardChange = ADFCardClicks * 5.0;
+    }
+
+    // new value = current value plus changes
+    float ADFCardNewValue = ADFCardDataref + ADFCardChange;
+
+    // make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (ADFCardNewValue < 0.0) ADFCardNewValue += 360.0;
+    while (ADFCardNewValue >= 360.0) ADFCardNewValue -= 360.0;
+
+    // write validated new heading back to dataref
+    ADFCardDataref = ADFCardNewValue;
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    ADFCardEncoderPrevious = 0;
+    ADFCardEncoder.write(0);
+    ADFCardEncoderClickInterval = 0;
+  }
+
+  /*
+  
+ Com 1 Hz Test
+ ***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.  
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short Com1StanbyHzClicks = (Com1StanbyHzEncoder.read() - Com1StanbyHzEncoderPrevious) / 4;
+  
+ 
+  // when encoder 'clicks' into a new detent:
+  if (Com1StanbyHzClicks != 0) {
+    
+    // change in degrees from current stored value (can be <0 )
+    float Com1StanbyHzChange = 0; 
+ 
+    // Threshold between FINE and FAST control: 30ms per click  
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (Com1StanbyHzEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 5 degrees per click.
+      Com1StanbyHzChange = Com1StanbyHzClicks * 5;
+
+      
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.  
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (Com1StanbyHzEncoderClickInterval <=30 && Com1StanbyHzEncoderClickInterval >1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      Com1StanbyHzChange = Com1StanbyHzClicks * 50.0;
+      
+    }
+
+    // new value = current value plus changes
+    float Com1StanbyHzNewValue = Com1StanbyHzDataRef + Com1StanbyHzChange;
+  
+    //// make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (Com1StanbyHzNewValue  <   0) Com1StanbyHzNewValue += 1000;
+    while (Com1StanbyHzNewValue >= 1000) Com1StanbyHzNewValue -= 1000;
+ 
+    // write validated new heading back to dataref
+    Com1StanbyHzDataRef = Com1StanbyHzNewValue;
+ 
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    Com1StanbyHzEncoderPrevious = 0;
+    Com1StanbyHzEncoder.write(0);
+    Com1StanbyHzEncoderClickInterval = 0;
+    
+  }
+*/
+  /****
+ Nav 1 Hz 
+ 
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.  
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short Nav1StanbyHzClicks = (Nav1StanbyHzEncoder.read() - Nav1StanbyHzEncoderPrevious) / 4;
+  
+ 
+  // when encoder 'clicks' into a new detent:
+  if (Nav1StanbyHzClicks != 0) {
+    
+    // change in degrees from current stored value (can be <0 )
+    float Nav1StanbyHzChange = 0; 
+ 
+    // Threshold between FINE and FAST control: 30ms per click  
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (Nav1StanbyHzEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 5 degrees per click.
+      Nav1StanbyHzChange = Nav1StanbyHzClicks * 5;
+
+      
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.  
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (Nav1StanbyHzEncoderClickInterval <=30 && Nav1StanbyHzEncoderClickInterval >1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      Nav1StanbyHzChange = Nav1StanbyHzClicks * 20.0;
+      
+    }
+ 
+    // new value = current value plus changes
+    float Nav1StanbyHzNewValue = Nav1StanbyHzDataRef + Nav1StanbyHzChange;
+  
+    //// make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (Nav1StanbyHzNewValue  <   0) Nav1StanbyHzNewValue += 100;
+    while (Nav1StanbyHzNewValue >= 100) Nav1StanbyHzNewValue -= 100;
+ 
+    // write validated new heading back to dataref
+    Nav1StanbyHzDataRef = Nav1StanbyHzNewValue;
+ 
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    Nav1StanbyHzEncoderPrevious = 0;
+    Nav1StanbyHzEncoder.write(0);
+    Nav1StanbyHzEncoderClickInterval = 0;
+  }
+*/
+
+
+  /*
+***
+ Elevator Trim  
+ Use this section if using an encoder on trim wheel.
+ Do not use this section if Trim Wheel is on a POT
+ ***
+
+ //sim/flightmodel/controls/elv_trim
+//Elevator Trim Wheel Encoder
+//Encoder ElevatorTrimWheelEncoder(9, 8); // Elevator trim on 8&9
+//short ElevatorTrimPrevious = 0;
+//elapsedMillis ElevatorTrimClickInterval = 0;
+//ElevatorTrimDataref
+
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.  
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short ElevatorTrimClicks = (ElevatorTrimWheelEncoder.read() - ElevatorTrimPrevious) / 4;
+  //short TestClicks = (ElevatorTrimWheelEncoder.read()-TestValuePrev)/4;//For Testing only 
+ 
+  // when encoder 'clicks' into a new detent:
+  if (ElevatorTrimClicks != 0) {
+      //if (TestClicks !=0){//For Testing only 
+    
+    
+    // change in degrees from current stored value (can be <0 )
+    float ElevatorTrimChange = 0;
+     //float TestChange=0;//For Testing only 
+ 
+    // Threshold between FINE and FAST control: 30ms per click  
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (ElevatorTrimClickInterval > 30) {
+      // FINE/slow mode. Change by 0.01  per click.
+      ElevatorTrimChange = ElevatorTrimClicks * 0.01;
+      
+       //TestChange=TestClicks *.05;//For Testing only 
+       //Serial.print("The encoder moved slow and incremented  ");//For Testing only 
+       //Serial.println(TestChange);//For Testing only 
+
+      
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.  
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (ElevatorTrimClickInterval <=30 && ElevatorTrimClickInterval >1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      ElevatorTrimChange = ElevatorTrimClicks * .050;
+      
+      //TestChange=TestClicks *5.0;//For Testing only 
+       //Serial.print("The encoder moved fast and incremented  ");//For Testing only 
+       //Serial.println(TestChange);//For Testing only 
+    }
+ 
+    // new value = current value plus changes
+    float ElevatorTrimNewValue = ElevatorTrimDataref + ElevatorTrimChange;
+     //float TestNewValue =TestDataRef+ TestChange;//For Testing only 
+  
+    // make sure new value is valid Trim value has to be inbetween -1 & 1
+    while (ElevatorTrimNewValue  <   -1) ElevatorTrimNewValue = -1;
+    while (ElevatorTrimNewValue > 1) ElevatorTrimNewValue = 1;
+ 
+    // write validated new heading back to dataref
+    ElevatorTrimDataref = ElevatorTrimNewValue;
+    //TestDataRef = TestNewValue;//For Testing only 
+ 
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    ElevatorTrimPrevious = 0;
+    ElevatorTrimWheelEncoder.write(0);
+    ElevatorTrimClickInterval = 0;
+    
+   //Serial.print("The New Value is  ");//For Testing only 
+    //Serial.println(TestDataRef);//For Testing only   
+  }
+
+*/
+
+  //***
+  //HI Mag
+  //***
+  // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
+  // (+ve clockwise, -ve anticlockwise, normally)
+  short HIMagClicks = (HIMagEncoder.read() - HIMagEncoderPrevious) / 4;
+
+
+  // when encoder 'clicks' into a new detent:
+  if (HIMagClicks != 0) {
+
+    // change in degrees from current stored value (can be <0 )
+    float HIMagChange = 0;
+
+    // Threshold between FINE and FAST control: 30ms per click
+    //Change this to get a different threshold time  Must change in 2 spots
+    if (HIMagEncoderClickInterval > 30) {
+      // FINE/slow mode. Change by 0.5 degrees per click.
+      HIMagChange = HIMagClicks * 0.5;
+
+
+      //This changes if the elapsed time between clicks is less than 30ms but greater than 1 milisecond.
+      //The 1ms is used to process out noise that happens between clicks and prevent unwanted "bounce"
+    } else if (HIMagEncoderClickInterval <= 30 && HIMagEncoderClickInterval > 1) {
+      // FAST/coarse mode. Change by 5 degrees per click.
+      HIMagChange = HIMagClicks * 5.0;
+    }
+
+    // new value = current value plus changes
+    float HIMagNewValue = HIMagDataref + HIMagChange;
+
+    // make sure new value is valid (i.e. when moving across 0deg/360deg)
+    while (HIMagNewValue < 0.0) HIMagNewValue += 360.0;
+    while (HIMagNewValue >= 360.0) HIMagNewValue -= 360.0;
+
+    // write validated new heading back to dataref
+    HIMagDataref = HIMagNewValue;
+
+    // reset encoder state and interval timer
+    // (only when encoder has 'clicked' into a new detent!)
+    HIMagEncoderPrevious = 0;
+    HIMagEncoder.write(0);
+    HIMagEncoderClickInterval = 0;
+  }
+
+  //**********************************
+  //***      annunciator Code    ***
+  //**********************************
+  //#######################################
+  //########Testing connecting LCD##########
+  //########################################
+
+  // fuel level
+  //*********************FUEL
+  //*********************FUEL
+  if (FuelAnnunciatorDataref == 1) {
+    annunciatorArray[0] = true;
+    lcd.setCursor(0, 0);
+    lcd.print("                ");
+    lcd.setCursor(0, 0);
+    lcd.print("L   LOW FUEL   R");
+
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print("                ");
+    annunciatorArray[0] = false;
+  }
+  //Oil Pressure
+  //***********************OIL PRESSURE
+  //***********************OIL PRESSURE
+  if (OilAnnunciatorDataref != 0) {
+    annunciatorArray[1] = true;
+    lcd.setCursor(0, 1);
+    lcd.print("        ");
+    lcd.setCursor(0, 1);
+    lcd.print("OIL PRESS");
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print("         ");
+    annunciatorArray[1] = false;
+  }
+
+  //VACUUM
+  //*****************************VACUUM
+  //*****************************VACUUM
+  if (VacAnnunciatorDataref == 1) {
+    annunciatorArray[2] = true;
+    lcd.setCursor(12, 1);
+    lcd.print("       ");
+    lcd.setCursor(12, 1);
+    lcd.print("L VAC R");
+  } else {
+    lcd.setCursor(12, 1);
+    lcd.print("       ");
+    annunciatorArray[2] = false;
+  }
+  // LOW VOLTS
+  //*********************LOW VOLTS
+  //*********************LOW VOLTS
+  if (VoltsAnnunciatorDataref == 1) {
+    annunciatorArray[3] = true;
+    lcd.setCursor(0, 2);
+    lcd.print("     ");
+    lcd.setCursor(0, 2);
+    lcd.print("VOLTS");
+  } else {
+    lcd.setCursor(0, 2);
+    lcd.print("     ");
+    annunciatorArray[3] = false;
+  }
+  bool anyTrue = false;  // Flag to indicate if any element is true
+
+  for (int i = 0; i < 4; i++) {
+    if (annunciatorArray[i]) {  // Check if the current element is true
+      anyTrue = true;           // Set the flag to true
+      break;                    // Exit the loop as soon as a true value is found
+    }
+  }
+
+  if (anyTrue) {
+    lcd.on();
+    lcd.backlight();
+  } else {
+    lcd.off();
+    lcd.noBacklight();
+  }
+
+
+
+
+
+
+  /*LEDTEST MODE
+
+
+digitalWrite(Com1LPin, HIGH);
+digitalWrite(Com1MPin, HIGH);
+digitalWrite(Com2LPin, HIGH);
+digitalWrite(Com2MPin, HIGH);
+digitalWrite(Nav1LPin, HIGH);
+digitalWrite(Nav2LPin, HIGH);
+digitalWrite(ADFPin, HIGH);
+digitalWrite(DMEPin, HIGH);
+digitalWrite(OuterLedPin, HIGH);
+digitalWrite(MiddleLedPin, HIGH);
+digitalWrite(InnerLedPin, HIGH);
+digitalWrite(MkrMutepin, HIGH);
+digitalWrite(SensHiPin, HIGH);
+digitalWrite(SensLoPin, HIGH);
+digitalWrite(SplitComPin, HIGH);*/
+  FlightSim.update();
+}
