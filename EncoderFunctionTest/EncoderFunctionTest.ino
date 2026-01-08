@@ -10,7 +10,7 @@ float encoderArray[arrayEncCount][3]; //[Pin A][Pin A Value][Pin B][Pin B Value]
 float encoderArrayOld[arrayEncCount][3]; //[Pin A][Pin A Value][Pin B][Pin B Value]
 //Encoder parameter arrays.  These arrays hold the values to be passed to function
 int encPosArray[arrayEncCount];
-Encoder encVarName[arrayEncCount];
+//Encoder encVarName[arrayEncCount];
 float encDataRefFloat[arrayEncCount];
 int encDataRefInt[arrayEncCount];
 float encLowValue[arrayEncCount];
@@ -24,9 +24,9 @@ float encFastSpeed[arrayEncCount];
 
 //Invividual Encoder Paramerts
 // Heading Bug Encoder
-Encoder HeadingBugEncoder(27, 28);  // Heading Bug on 5 6
+Encoder HeadingBugEncoder(5, 6);  // Heading Bug on 5 6
 int HeadingBugEncPos =0;
-//short HeadingBugEncoderPrevious = 0;
+short HeadingBugEncoderPrevious = 0;
 float HeadingBugDataref = 0;
 int unUsedInt =0;
 
@@ -39,32 +39,28 @@ Serial.begin(9600);  //for debugging
 
 
 void loop(){
-//encoderValChange(HeadingBugEncoder, HeadingBugDataref, unUsedInt);
-encoderCheck();
+encoderValChange(HeadingBugEncoder, HeadingBugDataref, unUsedInt);
+//encoderCheck();
 
 }
+
+
 void encoderCheck(){
-for(int i=0, i<arrayEncCount, i++){
-  if (encoderArray[i][1]!= encoderArrayOld[i][1] || encoderArray[i][1]!= encoderArrayOld[i][1]){
-
-  
-encoderValChange(encVarName[i], encDataRefFloat[i], encDataRefInt[i], encLowValue[i], encHighValue[i], encValCont[i], encSlowSpeed[i], encFastSpeed[i]);
-encoderArrayOld[i][1]=encoderArray[i][1];//May need to set to 0
-encoderArrayOld[i][1]=encoderArray[i][1];
 
 }
-}
 
 
 
-void encoderValChange(Encoder encoderValue, float &simDataRef, int &simDataRefInt, float lowVal, float hiVal, bool loopVlaues, float slowSpeed, float hiSpeed ){
+
+void encoderValChange(Encoder encoderValue, float &simDataRef, int &simDataRefInt){
 //**************************************************************
 //********   Check Encoder 
 //**************************************************************
   // divide by 4 to find how many clicks the encoder's been turned  This value should be changed based on the encoder type.
   // (+ve clockwise, -ve anticlockwise, normally)
   short encoderPrevious = 0;
-  short encoderClicks = (encoderValue.read() - encoderPrevious) / 4;
+  //short encoderClicks = (encoderValue.read() - encoderPrevious) / 4;
+  short encoderClicks = (HeadingBugEncoder.read() - encoderPrevious) / 4;
 
 
   // when encoder 'clicks' into a new detent:
@@ -94,8 +90,8 @@ void encoderValChange(Encoder encoderValue, float &simDataRef, int &simDataRefIn
 
 
     // make sure new value is valid (i.e. when moving across High Value and Low value
-    while (encNewValue < lowVal) encNewValue += hiVal;
-    while (encNewValue >= hiVal) encNewValue -= hiVal;
+    while (encNewValue < 0.0) encNewValue += 360.0;
+    while (encNewValue >= 360.0) encNewValue -= 360.0;
 
     // write validated new heading back to dataref
     simDataRef = encNewValue;
